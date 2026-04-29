@@ -1,5 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
-import { generateResumePDF, getDisplayBullets } from './generatePDF'
+
+function getDisplayBullets(bulletsText) {
+  if (!bulletsText) return ''
+  const parsed = bulletsText
+    .split('\n')
+    .map((line) => {
+      const m = line.match(/^\[(.+?)\]\s*(.+?)\s*→\s*(.+)$/)
+      return m ? m[3].trim() : null
+    })
+    .filter(Boolean)
+  return parsed.length ? parsed.map((b) => `• ${b}`).join('\n') : bulletsText
+}
 
 const SYSTEM_PROMPT = `You are a job application assistant for Preiyal Thakkar. Here is his complete professional background:
 
@@ -37,14 +48,17 @@ Your job is to help Preiyal apply to jobs quickly and effectively. When given a 
 
 {
   "keywords": "A comma-separated list of 10-15 important keywords and skills from the job description that Preiyal should highlight",
-  "bullets": "3-5 tailored resume bullet replacements. Output exactly one line per replacement in this format (no intro, no numbering, no • symbols):\n[SectionKey] OriginalBulletStart → RewrittenBullet\n\nValid SectionKey values: Infoseeking Lab, PricewaterhouseCoopers, Monedo. OriginalBulletStart = first ~35 chars of the existing bullet you are replacing (enough to identify it). RewrittenBullet = full tailored replacement using strong action verbs and quantified impact. The → character is required. Output only lines in this format.",
-  "coverLetter": "A complete, professional cover letter (3-4 paragraphs) tailored to this specific role and company. Address it 'Dear Hiring Manager,' and sign off 'Best regards,\\nPreiyal Thakkar'. Make it specific to the JD, not generic.",
-  "outreach": "A short, punchy LinkedIn outreach message (under 200 words) to someone at the company. Friendly, specific to the role, asks for a 15-minute coffee chat. No subject line needed."
+  "bullets": "Rewrite only the resume bullets that directly map to this JD. Leave out any bullet that does not clearly connect to the role — do not pad with irrelevant ones.\n\nOutput format — one line per rewrite, no intro, no numbering, no • symbol:\n[SectionKey] {exact first 50 chars of the real bullet} → {rewritten bullet}\n\nThe → character is required. Output only lines in this format.\n\nThe ONLY bullets that exist on this resume are listed below. You must copy the OriginalBulletStart character-for-character from this list — do not paraphrase, shorten, or invent originals:\n\nPricewaterhouseCoopers:\n- Diagnosed that financial documentation bottlenecks\n- Streamlined document chunking, embedding, and review\n- Partnered with FS Tech engineers to design secure,\n\nMonedo:\n- Developed ML models for credit risk assessment, im\n- Analyzed large financial datasets (Python, Pandas,\n- Collaborated with senior data scientists to translat\n\nInfoseeking Lab:\n- Proactively identified an underexplored gap across\n\nScope — what you may change:\n- The wording, framing, or emphasis of an existing bullet to better match the JD\n- Which aspect of the work to lead with\n- The angle (e.g. technical depth vs. business impact) based on the role\n\nScope — what you may never do:\n- Add a bullet that does not correspond to one of the real bullets listed above\n- Mention any company, tool, platform, or technology in a rewritten bullet unless it already appears in that original bullet or in Preiyal's skills list\n- Add LinkedIn, TikTok, Salesforce, or any platform as claimed experience just because the JD mentions it\n- Add skills, tools, or software to the skills section that are not already listed\n- Invent a responsibility, project, or outcome that is not grounded in the original bullet\n\nResearch Lab rule:\n- The Infoseeking Lab bullet describes academic research on equitable AI and benchmark failures. Do not reframe it for non-research roles. If the role is not explicitly research-focused, omit this bullet entirely — do not include it with modified wording. It adds credibility as-is for research roles only.\n\nRewriting rules:\n- Write in past tense. Bullets describe what was done, not why it matters.\n- No meta-commentary. Never write phrases like 'directly mirroring', 'the same workflow as', 'central to this role', 'applicable to this position', or any phrase that explains why the bullet is relevant. Relevance is shown by the rewrite, not stated.\n- The rewritten bullet must sound like a sharp, confident human wrote it — not AI. Concrete action, concrete result. No word salad.\n- Banned phrases in rewrites: 'leveraging', 'synergies', 'cross-functional stakeholders', 'driving adoption', 'spearheaded', 'utilized', 'impactful'.\n- The only quantified result at PwC is ~60% processing efficiency improvement. Never write 40% or any other invented figure.\n- Do not fabricate metrics, percentages, or outcomes not present in the original bullet.",
+  "coverLetter": "A complete, professional cover letter (3-4 paragraphs) tailored to this specific role and company. Address it 'Dear Hiring Manager,' and sign off 'Best regards,\\nPreiyal Thakkar'. Opening paragraph: state the role and one concrete reason Preiyal's background is a direct fit — no enthusiasm clichés. Body paragraphs: cite specific projects or results from his real experience that map to the JD's requirements. Closing: direct ask for a conversation. Banned phrases: 'I am excited', 'I am thrilled', 'I would love', 'I am passionate', 'dream company', 'perfect fit', 'deeply passionate'. Do not invent metrics or outcomes not stated in his background.",
+  "outreach": "A short LinkedIn outreach message (under 200 words) to someone at the company. Lead with a specific observation about their work or the team — not a generic compliment. State the role Preiyal applied for and one concrete data point from his background that is relevant to their work. End with a single low-friction ask: a 15-minute call. Banned phrases: 'I am excited', 'I would love', 'I am passionate', 'huge fan', 'dream company'. No subject line. No flattery filler."
 }
 
 Rules:
 - Always respond with raw JSON only. No markdown. No code blocks. No explanation.
 - Base all content on Preiyal's REAL experience above — do not fabricate credentials.
+- Do not invent metrics, percentages, or outcomes not explicitly stated in his background.
+- Never mention a company, tool, platform, or technology in any output unless it already appears in his background or the original bullet being rewritten. Do not claim experience with LinkedIn, Salesforce, TikTok, or any platform just because the JD lists it.
+- Your job is to reframe what exists — not invent what doesn't.
 - Tailor everything specifically to the provided job description and company.
 - For the role type context provided, adjust tone and emphasis accordingly.`
 
@@ -155,7 +169,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [copiedTab, setCopiedTab] = useState(null)
   const [showHunter, setShowHunter] = useState(false)
-  const [showToast, setShowToast] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [toast, setToast] = useState({ show: false, error: false })
   const [appLog, setAppLog] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('applyfast_log') || '[]')
@@ -255,11 +270,35 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
     }
   }
 
-  const downloadResume = () => {
-    if (!output?.bullets) return
-    generateResumePDF(output.bullets, roleTitle, companyName)
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
+  const downloadResume = async () => {
+    if (!output?.bullets || isDownloading) return
+    setIsDownloading(true)
+    try {
+      const res = await fetch('http://localhost:5001/generate-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bullets: output.bullets,
+          role_title: roleTitle,
+          company_name: companyName,
+        }),
+      })
+      if (!res.ok) throw new Error('Server error')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Preiyal_Thakkar_${roleTitle}_${companyName}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      setToast({ show: true, error: false })
+      setTimeout(() => setToast({ show: false, error: false }), 2000)
+    } catch {
+      setToast({ show: true, error: true })
+      setTimeout(() => setToast({ show: false, error: false }), 2500)
+    } finally {
+      setIsDownloading(false)
+    }
   }
 
   const copyContent = (tab) => {
@@ -424,11 +463,11 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
               </button>
               <button
                 onClick={downloadResume}
-                disabled={!output}
+                disabled={!output || isDownloading}
                 title={!output ? 'Generate first to enable' : ''}
                 className="px-4 py-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-300 disabled:text-gray-600 rounded-xl text-sm font-medium transition-all duration-150 whitespace-nowrap active:scale-[0.98]"
               >
-                ⬇ Download Tailored Resume
+                {isDownloading ? 'Generating…' : '⬇ Download Tailored Resume'}
               </button>
             </div>
 
@@ -506,11 +545,15 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
           </div>
         </div>
 
-        {showToast && (
-        <div className="fixed bottom-6 right-6 bg-green-800 border border-green-700 text-green-100 px-4 py-3 rounded-xl shadow-xl text-sm font-medium z-50 pointer-events-none">
-          Resume downloaded!
-        </div>
-      )}
+        {toast.show && (
+          <div className={`fixed bottom-6 right-6 px-4 py-3 rounded-xl shadow-xl text-sm font-medium z-50 pointer-events-none border ${
+            toast.error
+              ? 'bg-red-900 border-red-700 text-red-100'
+              : 'bg-green-800 border-green-700 text-green-100'
+          }`}>
+            {toast.error ? 'Resume generation failed — try again' : 'Resume downloaded!'}
+          </div>
+        )}
 
       {/* Application Log */}
         <section ref={logRef} className="mt-12">
