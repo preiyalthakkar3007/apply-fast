@@ -274,7 +274,7 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
     if (!output?.bullets || isDownloading) return
     setIsDownloading(true)
     try {
-      const res = await fetch('http://localhost:5001/generate-resume', {
+      const res = await fetch('https://apply-fast-backend.onrender.com/generate-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
