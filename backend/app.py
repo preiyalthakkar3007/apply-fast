@@ -15,11 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=[
-    'http://localhost:5173',
-    'https://apply-fast.vercel.app',
-    'https://apply-fast-backend.onrender.com',
-])
+CORS(app)
 
 
 # ── Resume content ────────────────────────────────────────────────────────────
