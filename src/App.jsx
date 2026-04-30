@@ -173,6 +173,88 @@ function SettingsModal({ apiKey, onSave, onClose }) {
   )
 }
 
+const LOG_TABS = ['keywords', 'bullets', 'coverLetter', 'outreachEmail']
+const LOG_TAB_LABELS = {
+  keywords: 'Keywords',
+  bullets: 'Bullets',
+  coverLetter: 'Cover Letter',
+  outreachEmail: 'Outreach Email',
+}
+
+function ViewModal({ entry, onClose }) {
+  const [activeTab, setActiveTab] = useState('keywords')
+  const [copiedTab, setCopiedTab] = useState(null)
+  const overlayRef = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (e.target === overlayRef.current) onClose() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  const getContent = (tab) => tab === 'bullets' ? getDisplayBullets(entry.bullets) : (entry[tab] || '')
+
+  const copy = (tab) => {
+    navigator.clipboard.writeText(getContent(tab)).then(() => {
+      setCopiedTab(tab)
+      setTimeout(() => setCopiedTab(null), 2000)
+    })
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    >
+      <div className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[80vh]">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-700">
+          <div>
+            <h2 className="text-white font-semibold">{entry.company}</h2>
+            <p className="text-gray-400 text-sm">{entry.role} · {entry.date}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1 mt-0.5">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex border-b border-gray-700 px-6">
+          {LOG_TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                activeTab === tab
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {LOG_TAB_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 overflow-auto p-5">
+          {getContent(activeTab) ? (
+            <>
+              <pre className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed font-sans pr-16">
+                {getContent(activeTab)}
+              </pre>
+              <button
+                onClick={() => copy(activeTab)}
+                className="absolute top-4 right-4 px-3 py-1.5 text-xs font-medium bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 rounded-lg transition-all duration-150"
+              >
+                {copiedTab === activeTab ? <span className="text-green-400">Copied!</span> : 'Copy'}
+              </button>
+            </>
+          ) : (
+            <p className="text-gray-500 text-sm">No content saved for this field.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('applyfast_api_key') || '')
   const [showSettings, setShowSettings] = useState(false)
@@ -195,6 +277,7 @@ export default function App() {
       return []
     }
   })
+  const [viewEntry, setViewEntry] = useState(null)
 
   const logRef = useRef(null)
 
@@ -275,6 +358,10 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
           role: roleTitle || '—',
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           status: 'Applied',
+          keywords: parsed.keywords || '',
+          bullets: parsed.bullets || '',
+          coverLetter: parsed.coverLetter || '',
+          outreachEmail: parsed.outreach || '',
         }
         setAppLog((prev) => {
           const updated = [newEntry, ...prev]
@@ -375,6 +462,9 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {showSettings && (
         <SettingsModal apiKey={apiKey} onSave={saveApiKey} onClose={() => setShowSettings(false)} />
+      )}
+      {viewEntry && (
+        <ViewModal entry={viewEntry} onClose={() => setViewEntry(null)} />
       )}
 
       {/* Header */}
@@ -605,6 +695,7 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
                     <th className="text-left px-4 py-3 text-gray-400 font-medium">Date</th>
                     <th className="text-left px-4 py-3 text-gray-400 font-medium">Status</th>
                     <th className="px-4 py-3" />
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -626,6 +717,15 @@ Please generate the keywords, tailored bullets, cover letter, and outreach messa
                             <option key={s} value={s} className="bg-gray-900 text-gray-100">{s}</option>
                           ))}
                         </select>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => setViewEntry(entry)}
+                          disabled={!entry.coverLetter && !entry.keywords}
+                          className="px-3 py-1 text-xs font-medium bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-colors"
+                        >
+                          View
+                        </button>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
